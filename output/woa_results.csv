@@ -1,0 +1,2 @@
+school_type,school_type_label,optimal_x_km,optimal_y_km,need_score,nearest_municipality,dist_to_nearest_muni_km,n_agents,n_iterations,w_distance,w_students,w_occupancy,w_connectivity,w_exam_results,w_fertility
+primary,Szkoła podstawowa,36.5508,94.4539,0.684465,GMN_039,0.141,30,100,0.25,0.2,0.2,0.1,0.1,0.15
