@@ -1,8 +1,8 @@
 """
-Algorytm naśladuje zachowania łowieckie humbaków (Megaptera novaeangliae):
-  - Atak bąbelkowy ze zwężającym się okrążaniem   (eksplo­ita­cja)
-  - Atak bąbelkowy ze spiralą logarytmiczną        (eksplo­ita­cja)
-  - Losowe przeszukiwanie                          (eksplo­ra­cja)
+Algorytm naśladuje zachowania łowieckie humbaków :
+  - Atak bąbelkowy ze zwężającym się okrążaniem   
+  - Atak bąbelkowy ze spiralą logarytmiczną     
+  - Losowe przeszukiwanie                          
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ class WhaleOptimizationAlgorithm:
 
     def _clip(self, positions: np.ndarray, old_positions: np.ndarray) -> np.ndarray:
         """
-        NOWA LOGIKA: Jeśli wieloryb wypłynie poza województwo, 
+        Jeśli wieloryb wypłynie poza województwo, 
         zostaje przyciągnięty do swojej poprzedniej (dobrej) pozycji.
         """
         new_positions = np.clip(positions, self.lb, self.ub)
