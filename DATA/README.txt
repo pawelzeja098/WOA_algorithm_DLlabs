@@ -10,11 +10,15 @@ gmina
 postal_code
 id
 
-w pozostałych plikach lista gmin i powiatow, nie wszystkie gminy maja szkole jak cos (z 3 albo 4 tak dokładniej mowiac)
 
-gminy.csv to wyciagniete gminy z pliku szkoły_final.csv
-
+NAJWAZNIEJSZE PLIKI Z DANYMI
+GMINY_READY.CSV
+POWIATY_READY.CSV
+=
 gminy_ready.csv jak się nie dziabnalem to zawiera wszystkie gminy z malopolski.
-format powinien byc taki sam jak w szkoly_final tzn. gmina Nazwa gminy, chyba że to gmina miejska to wtedy po prostu np. Limanowa czyli mamy gmina Limanowa (wiochy) i Limanowa (miasto) proste łatwe i przyjemne. statystyki pododaje moze dzisiaj moze nie zobaczę jak mi się będzie chciało z tym kopac. i tez powiaty sa tam
+format powinien byc taki sam jak w szkoly_final tzn. "gmina Nazwa Gminy", chyba że to gmina miejska to wtedy po prostu np. "Limanowa" czyli mamy "gmina Limanowa" (wiochy) i "Limanowa" (miasto) proste łatwe i przyjemne. Nazwy piszemy z wielkich liter np. "gmina Wielka Wieś" albo "gmina Igołomia-Wawrzeńczyce".
 
-powiaty.csv no lista powiatow - to trzeba uzupelnic o statystyki 
+powiaty_ready tak samo, tutaj mamy 3 wyjątki Kraków, Nowy Sącz, Tarnów, reszta ma nazwy w postaci "powiat nazwa", tutaj małymi.
+
+stare pliki są w dane_demo
+Buziaczki <3
