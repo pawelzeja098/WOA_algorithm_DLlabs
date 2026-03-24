@@ -10,6 +10,7 @@ Pokazuje:
 from pathlib import Path
 import numpy as np
 from shapely.geometry import Point
+from scipy.spatial.distance import cdist
 
 # Importuj z load_shape
 from load_shape import (
@@ -70,84 +71,39 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
         school_points = np.empty((0, 2), dtype=float)
     
     def fitness_func(position: np.ndarray) -> float:
-        """
-        TUTAJ OPRACUJ WLASNA FUNKCJE CELU
-        
-        Dostęp do danych:
-        
-        gmina_data = {
-            'suma_U19': float,              # Liczba dzieci 0-19
-            'populacja': float,
-            'przystanki': float,            # Dostęp do transportu
-            'gestosc': float,               # osób/km²
-            'wydatki': float,               # budżet (zł)
-            'powierzchnia': float,
-            ...
-        }
-        
-        egzaminy_data = {
-            'srednia_wszystkich_przedmiotow': float,      # średni wynik (%)
-            'liczba_zdajacych': float,                    # dostęp do edukacji
-            'srednie_odchylenie_standardowe': float,      # wskaźnik NIERÓWNOŚCI
-            'min_dist_to_school': float,                  # odleglosc do najblizszej istniejacej szkoly
-            'przedmioty': {                               # szczegóły po przedmiotach
-                'polski': {'srednia': ..., 'mediana': ..., 'odchylenie_standardowe': ...},
-                'matematyka': {...},
-                'angielski': {...},
-                ...
-            }
-        }
-        
-        Patrz DOSTEPNE_DANE_DO_FUNCJI_CELU.md dla pelnej dokumentacji
-        """
         x, y = position[0], position[1]
         
-        # Pobierz dane demograficzne
+
         gmina_data = gmina_accessor.get_data_for_position(x, y)
         if gmina_data is None or gmina_data.get("data_not_found"):
             return 0.0
         
-        # Pobierz dane edukacyjne
-        gmina_name = gmina_data.get("gmina", gmina_data.get("name"))
-        if isinstance(gmina_name, str) and gmina_name.lower().startswith("gmina "):
-            gmina_name = gmina_name[6:].strip()
-        egzaminy_data = egzaminy_accessor.get_wszystkie_dane_dla_gminy(gmina_name)
-        
-        # Jeśli brak danych edukacyjnych, użyj 0
-        if egzaminy_data is None:
-            egzaminy_data = {
-                "srednia_wszystkich_przedmiotow": 0,
-                "liczba_zdajacych": 0,
-                "srednie_odchylenie_standardowe": 0,
-                "przedmioty": {}
-            }
-
-        # Odleglosc od najblizszej istniejacej szkoly (w stopniach)
         if school_points.shape[0] > 0:
             dxy = school_points - np.array([x, y], dtype=float)
             min_dist_to_school = float(np.sqrt(np.min(np.sum(dxy * dxy, axis=1))))
         else:
-            min_dist_to_school = float("inf")
+            min_dist_to_school = 0.0
 
-        # Dodaj metryke odleglosci do slownika danych edukacyjnych,
-        # aby byla dostepna jako gotowe wejscie do funkcji celu.
-        egzaminy_data["min_dist_to_school"] = min_dist_to_school
-        
-        
-        # PRZYKŁAD: Szkoły gdzie jest DEFICYT edukacyjny
-        
         suma_u19 = gmina_data.get("suma_U19", 0)
-        liczba_zdajacych = egzaminy_data.get("liczba_zdajacych", 0)
-        nierownos = egzaminy_data.get("srednie_odchylenie_standardowe", 0)
         przystanki = gmina_data.get("przystanki", 0)
-        min_dist = egzaminy_data.get("min_dist_to_school", 0)
         
-        # Metryka: Deficyt szkolny + nierówności + transport
+        MAX_U19 = 10000.0      # Typowa duża gmina ma ok. 5-10 tys. dzieci (pomijamy duże miasta jak Kraków)
+        MAX_PRZYSTANKI = 200.0 # Typowa dobra liczba przystanków
+        MAX_DIST = 0.1         # Ok. 10-11 km w stopniach (uznajemy, że to już bardzo daleko od innej szkoły)
+        
+        # Skalowanie metryk do przedziału [0, 1]
+        norm_u19 = min(suma_u19 / MAX_U19, 1.0)
+        norm_przystanki = min(przystanki / MAX_PRZYSTANKI, 1.0)
+        norm_dist = min(min_dist_to_school / MAX_DIST, 1.0)
+    
+        WAGA_DYSTANS = 0.60
+        WAGA_DZIECI = 0.20           
+        WAGA_KOMUNIKACJA = 0.20     
+        
         score = (
-            (suma_u19 / (liczba_zdajacych + 1)) +      # deficyt edukacyjny
-            (nierownos / 20) +                         # nierówności (znormalizowane)
-            (przystanki / 100) +                       # dostęp do transportu
-            (min_dist * 5)                             # preferuj punkty dalej od istniejacych szkol
+            (norm_dist * WAGA_DYSTANS) +
+            (norm_u19 * WAGA_DZIECI) + 
+            (norm_przystanki * WAGA_KOMUNIKACJA)
         )
         
         return float(score)
