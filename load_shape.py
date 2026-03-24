@@ -12,6 +12,7 @@ GEOJSON_PATH = DATA_DIR / "wojewodztwa-min.geojson"
 SCHOOLS_PATH = DATA_DIR / "szkoly_final.csv"
 # NOWA ŚCIEŻKA DO POWIATÓW
 POWIATY_PATH = DATA_DIR / "poland.municipalities.json" 
+GMINY_READY_PATH = DATA_DIR / "gminy_ready.csv"
 TARGET_VOIVODESHIP = "małopolskie"
 
 # --- ISTNIEJĄCE FUNKCJE (BEZ ZMIAN) ---
@@ -59,6 +60,146 @@ def load_powiaty_in_voivodeship(powiaty_path: Path, voivodeship_geom):
             powiaty_shapes.append(poly)
             
     return powiaty_shapes
+
+# --- NOWE FUNKCJE DO OBSŁUGI DANYCH GMINY ---
+
+def load_gminy_data(csv_path: Path):
+    """Wczytuje dane gminy z gminy_ready.csv do słownika."""
+    gminy_data = {}
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:  # utf-8-sig usuwa BOM
+        reader = csv.DictReader(f)
+        for row in reader:
+            gmina_name = row.get("gmina", "").strip()
+            if gmina_name:
+                # Normalizuj kluczy do float gdzie potrzeba
+                for key in ["powierzchnia", "gestosc", "populacja", "suma_U19", "wydatki", "przystanki"]:
+                    if key in row:
+                        try:
+                            row[key] = float(row[key])
+                        except (ValueError, TypeError):
+                            pass
+                gminy_data[gmina_name] = row
+    return gminy_data
+
+def load_gminy_geometries(powiaty_path: Path, voivodeship_geom):
+    """
+    Wczytuje geometrie gminy z poland.municipalities.json.
+    Zwraca listę tupli (geometry, name, terc) dla gminy w województwie.
+    """
+    with open(powiaty_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    gminy_geoms = []
+    for feature in data["features"]:
+        poly = shape(feature["geometry"])
+        props = feature.get("properties", {})
+        name = props.get("name", "")
+        terc = props.get("terc", "")
+        
+        # Sprawdzamy, czy gmina należy do województwa
+        if voivodeship_geom.intersects(poly.centroid):
+            gminy_geoms.append({
+                "geometry": poly,
+                "name": name,
+                "terc": terc
+            })
+    
+    return gminy_geoms
+
+def find_gmina_for_point(point: Point, gminy_geoms: list):
+    """
+    Znajduje, która gmina zawiera dany punkt.
+    Zwraca słownik z informacjami gminy lub None.
+    """
+    for gmina_info in gminy_geoms:
+        if gmina_info["geometry"].contains(point):
+            return gmina_info
+    return None
+
+class GminaDataAccessor:
+    """
+    Klasa do wygodnego dostępu do danych gminy na podstawie pozycji (x, y).
+    Używana przez funkcję fitness algorytmu WOA.
+    """
+    def __init__(self, gmini_data_dict: dict, gminy_geometries: list):
+        """
+        Parameters:
+        - gmini_data_dict: słownik danych gminy (klucz: nazwa gminy)
+        - gminy_geometries: lista geometrii gminy
+        """
+        self.gminy_data = gmini_data_dict
+        self.gminy_geoms = gminy_geometries
+        # Utwórz indeks znormalizowanych nazw dla szybszego wyszukiwania
+        self._normalized_index = self._build_normalized_index(gmini_data_dict)
+    
+    def _build_normalized_index(self, gminy_data_dict: dict):
+        """
+        Buduje indeks zmapowujący znormalizowane nazwy na oryginalne.
+        Obsługuje warianty: "Racławice", "gmina Racławice", "Racławice (gmina)", itd.
+        """
+        index = {}
+        for name, data in gminy_data_dict.items():
+            # Normalizuj: usuń "gmina" prefix, "(gmina)" suffix, itp.
+            normalized = name.strip()
+            if normalized.startswith("gmina "):
+                normalized = normalized[6:].strip()
+            if normalized.endswith(" (gmina)"):
+                normalized = normalized[:-8].strip()
+            if normalized.endswith("(gmina)"):
+                normalized = normalized[:-7].strip()
+            
+            index[normalized] = name
+        return index
+    
+    def _find_gmina_name_variant(self, geom_name: str):
+        """
+        Szuka nazwy gminy w CSV odpowiadającej nazwie z geometrii.
+        Zwraca oryginalną nazwę z CSV lub None.
+        """
+        # Znormalizuj wyszukiwaną nazwę
+        normalized = geom_name.strip()
+        if normalized.startswith("gmina "):
+            normalized = normalized[6:].strip()
+        
+        # Dokładne dopasowanie
+        if normalized in self._normalized_index:
+            return self._normalized_index[normalized]
+        
+        # Fuzzy matching: wyszukaj zawierającą
+        lower_normalized = normalized.lower()
+        for norm_name, original_name in self._normalized_index.items():
+            if lower_normalized in norm_name.lower() or norm_name.lower() in lower_normalized:
+                return original_name
+        
+        return None
+    
+    def get_data_for_position(self, x: float, y: float):
+        """
+        Zwraca dane gminy dla danej pozycji (x, y).
+        Jeśli punkt nie leży w żadnej gminie, zwraca None.
+        
+        Returns:
+            dict: dane gminy z gminy_ready.csv lub None
+        """
+        point = Point(x, y)
+        gmina_info = find_gmina_for_point(point, self.gminy_geoms)
+        
+        if gmina_info is None:
+            return None
+        
+        # Szukaj danych po nazwie gminy
+        gmina_name = gmina_info["name"]
+        
+        # Spróbuj znaleźć z normalizacją nazw
+        csv_name = self._find_gmina_name_variant(gmina_name)
+        
+        if csv_name and csv_name in self.gminy_data:
+            return self.gminy_data[csv_name]
+        
+        # Jeśli nie znaleźliśmy danych w CSV, zwróć None
+        # (oznacza że gmina nie ma danych w gminy_ready.csv)
+        return None
+
 
 # --- ZMODYFIKOWANE RYSOWANIE ---
 
@@ -110,13 +251,34 @@ def main():
     # NOWY KROK: Załaduj powiaty
     print("Filtrowanie powiatów dla województwa...")
     powiaty_in_malopolska = load_powiaty_in_voivodeship(POWIATY_PATH, geom)
+    
+    # NOWY KROK: Załaduj dane i geometrie gminy
+    print("Wczytywanie danych gminy...")
+    gminy_data = load_gminy_data(GMINY_READY_PATH)
+    gminy_geoms = load_gminy_geometries(POWIATY_PATH, geom)
+    
+    # Utwórz accessor do danych gminy
+    gmina_accessor = GminaDataAccessor(gminy_data, gminy_geoms)
 
     print(f"Załadowano geometrię: {TARGET_VOIVODESHIP}")
     print(f"Liczba powiatów w Małopolsce: {len(powiaty_in_malopolska)}")
+    print(f"Liczba gminy: {len(gminy_geoms)}")
+    print(f"Rekordy danych gminy: {len(gminy_data)}")
     print(f"Szkoły wewnątrz granic: {len(school_rows_in_malopolska)}")
+
+    # PRZYKŁAD: Użyj accessor'a do pobrania danych dla konkretnej pozycji
+    if school_rows_in_malopolska:
+        first_school = school_rows_in_malopolska[0]
+        x_test, y_test = first_school["_x"], first_school["_y"]
+        gmina_data_for_school = gmina_accessor.get_data_for_position(x_test, y_test)
+        print(f"\nDane gminy dla pozycji ({x_test:.2f}, {y_test:.2f}):")
+        print(gmina_data_for_school)
 
     # Wyświetl mapę
     plot_małopolska_with_schools_and_powiaty(geom, school_rows_in_malopolska, powiaty_in_malopolska)
+    
+    # WAŻNE: Zwróć accessor, aby był dostępny dla WOA
+    return gmina_accessor
 
 if __name__ == "__main__":
     main()

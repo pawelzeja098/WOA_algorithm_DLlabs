@@ -1,0 +1,233 @@
+"""
+PRZYKŁAD: Jak użyć danych gminy w algorytmie WOA
+
+Pokazuje:
+1. Załadowanie danych i geometrii gminy
+2. Stworzenie funkcji fitness, która ma dostęp do danych gminy
+3. Uruchomienie WOA z dostępem do danych gminy dla każdej pozycji
+"""
+
+from pathlib import Path
+import numpy as np
+from shapely.geometry import Point
+
+# Importuj z load_shape
+from load_shape import (
+    load_voivodeship_geometry, 
+    load_gminy_data,
+    load_gminy_geometries,
+    load_school_rows,
+    filter_points_inside_polygon,
+    GminaDataAccessor,
+    GEOJSON_PATH, 
+    POWIATY_PATH, 
+    GMINY_READY_PATH,
+    SCHOOLS_PATH,
+    TARGET_VOIVODESHIP
+)
+
+# Importuj z load_egzaminy
+from load_egzaminy import load_egzaminy_data, EgzaminyDataAccessor
+
+# Importuj WOA
+from src.woa import WhaleOptimizationAlgorithm
+
+
+def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzaminy_accessor: EgzaminyDataAccessor, school_rows: list = None):
+    """
+    Fabryka do tworzenia funkcji fitness z dostępem do WSZYSTKICH danych.
+    
+    Dostępne dane:
+    1. Demograficzne (gmina_data): suma_U19, populacja, gestosc, przystanki, wydatki, powierzchnia
+    2. Edukacyjne (egzaminy_data): srednia_wynikow, liczba_zdajacych, nierownos, szczegóły po przedmiotach
+    
+    Parameter:
+    - gmina_accessor: dostęp do danych demograficznych
+    - egzaminy_accessor: dostęp do danych edukacyjnych
+    - school_rows: lista istniejących szkół
+    
+    Returns:
+        Funkcja fitness_func(position) -> float
+    """
+    
+    # Zlicz szkoły w każdej gminie
+    schools_per_gmina = {}
+    if school_rows:
+        for school in school_rows:
+            x, y = school["_x"], school["_y"]
+            gmina_info = gmina_accessor.get_data_for_position(x, y)
+            if gmina_info:
+                gmina_name = gmina_info.get("gmina", gmina_info.get("name"))
+                schools_per_gmina[gmina_name] = schools_per_gmina.get(gmina_name, 0) + 1
+    
+    def fitness_func(position: np.ndarray) -> float:
+        """
+        ⭐⭐⭐ TUTAJ OPRACUJ SWOJĄ FUNKCJĘ CELU ⭐⭐⭐
+        
+        Dostęp do danych:
+        
+        gmina_data = {
+            'suma_U19': float,              # Liczba dzieci 0-19
+            'populacja': float,
+            'przystanki': float,            # Dostęp do transportu
+            'gestosc': float,               # osób/km²
+            'wydatki': float,               # budżet (zł)
+            'powierzchnia': float,
+            ...
+        }
+        
+        egzaminy_data = {
+            'srednia_wszystkich_przedmiotow': float,      # średni wynik (%)
+            'liczba_zdajacych': float,                    # dostęp do edukacji
+            'srednie_odchylenie_standardowe': float,      # wskaźnik NIERÓWNOŚCI
+            'przedmioty': {                               # szczegóły po przedmiotach
+                'polski': {'srednia': ..., 'mediana': ..., 'odchylenie_standardowe': ...},
+                'matematyka': {...},
+                'angielski': {...},
+                ...
+            }
+        }
+        
+        ⭐ Patrz DOSTEPNE_DANE_DO_FUNCJI_CELU.md dla pełnej dokumentacji
+        """
+        x, y = position[0], position[1]
+        
+        # Pobierz dane demograficzne
+        gmina_data = gmina_accessor.get_data_for_position(x, y)
+        if gmina_data is None or gmina_data.get("data_not_found"):
+            return 0.0
+        
+        # Pobierz dane edukacyjne
+        gmina_name = gmina_data.get("gmina", gmina_data.get("name"))
+        egzaminy_data = egzaminy_accessor.get_wszystkie_dane_dla_gminy(gmina_name)
+        
+        # Jeśli brak danych edukacyjnych, użyj 0
+        if egzaminy_data is None:
+            egzaminy_data = {
+                "srednia_wszystkich_przedmiotow": 0,
+                "liczba_zdajacych": 0,
+                "srednie_odchylenie_standardowe": 0,
+                "przedmioty": {}
+            }
+        
+        # =====================================================
+        # PRZYKŁAD: Szkoły gdzie jest DEFICYT edukacyjny
+        # =====================================================
+        suma_u19 = gmina_data.get("suma_U19", 0)
+        liczba_zdajacych = egzaminy_data.get("liczba_zdajacych", 0)
+        nierownos = egzaminy_data.get("srednie_odchylenie_standardowe", 0)
+        przystanki = gmina_data.get("przystanki", 0)
+        
+        # Metryka: Deficyt szkolny + nierówności + transport
+        score = (
+            (suma_u19 / (liczba_zdajacych + 1)) +      # deficyt edukacyjny
+            (nierownos / 20) +                         # nierówności (znormalizowane)
+            (przystanki / 100)                         # dostęp do transportu
+        )
+        
+        return float(score)
+    
+    return fitness_func
+
+
+def main():
+    print("=" * 70)
+    print("ALGORYTM WOA Z DOSTĘPEM DO DANYCH GMINY + DYSTANS OD SZKÓŁ")
+    print("=" * 70)
+    
+    # === KROK 1: Załaduj geometrię województwa ===
+    print("\n[1/7] Wczytywanie geometrii województwa...")
+    geom = load_voivodeship_geometry(GEOJSON_PATH, TARGET_VOIVODESHIP)
+    print(f"✓ Załadowano: {TARGET_VOIVODESHIP}")
+    
+    # === KROK 2: Załaduj istniejące szkoły ===
+    print("[2/7] Wczytywanie istniejących szkół...")
+    all_school_rows = load_school_rows(SCHOOLS_PATH)
+    school_rows_in_region, outside_count = filter_points_inside_polygon(all_school_rows, geom)
+    print(f"✓ Załadowano {len(school_rows_in_region)} szkół w regionie")
+    
+    # === KROK 3: Załaduj dane gminy ===
+    print("[3/7] Wczytywanie danych gminy...")
+    gminy_data = load_gminy_data(GMINY_READY_PATH)
+    print(f"✓ Załadowano {len(gminy_data)} rekordów gminy")
+    
+    # === KROK 4: Załaduj geometrie gminy ===
+    print("[4/7] Wczytywanie geometrii gminy...")
+    gminy_geoms = load_gminy_geometries(POWIATY_PATH, geom)
+    print(f"✓ Załadowano {len(gminy_geoms)} geometrii gminy")
+    
+    # === KROK 5: Utwórz accessor ===
+    print("[5/8] Tworzenie accessor'a danych demograficznych...")
+    gmina_accessor = GminaDataAccessor(gminy_data, gminy_geoms)
+    print("✓ Accessor demograficzny gotowy")
+    
+    # === KROK 6: Załaduj dane edukacyjne (E8) ===
+    print("[6/8] Wczytywanie danych edukacyjnych (E8 - gminy)...")
+    from pathlib import Path
+    DATA_DIR = Path(__file__).resolve().parent / "DATA"
+    egzamini_path = DATA_DIR / "E8 - gminy (aktualizacja 07.2025).csv"
+    egzaminy_data = load_egzaminy_data(egzamini_path)
+    print(f"✓ Załadowano {len(egzaminy_data)} rekordów edukacyjnych")
+    
+    # === KROK 7: Utwórz accessor do danych edukacyjnych ===
+    print("[7/8] Tworzenie accessor'a danych edukacyjnych...")
+    egzaminy_accessor = EgzaminyDataAccessor(egzaminy_data)
+    print("✓ Accessor edukacyjny gotowy")
+    
+    # === KROK 8: Stwórz funkcję fitness ===
+    print("[8/8] Tworzenie funkcji fitness...")
+    fitness_func = create_fitness_func_with_gminy_data(gmina_accessor, egzaminy_accessor, school_rows_in_region)
+    print("✓ Funkcja fitness gotowa (z dostępem do WSZYSTKICH danych)\n")
+    
+    # Pobierz granice bounding box
+    bounds = geom.bounds  # (minx, miny, maxx, maxy)
+    lb = [bounds[0], bounds[1]]  # Lower bound
+    ub = [bounds[2], bounds[3]]  # Upper bound
+    
+    # Utwórz i uruchom WOA
+    woa = WhaleOptimizationAlgorithm(
+        fitness_func=fitness_func,
+        lb=lb,
+        ub=ub,
+        mask_polygon=geom,
+        n_agents=20,          # Liczba "wielorybów"
+        max_iter=50,          # Liczba iteracji
+        b=1.0,
+        seed=42
+    )
+    
+    best_position, best_score = woa.optimize(verbose=True)
+    
+    # === WYNIKI ===
+    print("\n" + "=" * 70)
+    print("WYNIKI OPTYMALIZACJI")
+    print("=" * 70)
+    print(f"Najlepsza pozycja (x, y): ({best_position[0]:.4f}, {best_position[1]:.4f})")
+    print(f"Wynik fitness: {best_score:.6f}")
+    
+    # Pobierz dane gminy dla najlepszej pozycji
+    best_gmina_data = gmina_accessor.get_data_for_position(best_position[0], best_position[1])
+    if best_gmina_data and not best_gmina_data.get("data_not_found"):
+        print(f"\nGmina optymalna: {best_gmina_data.get('gmina', 'N/A')}")
+        print(f"  - Powiat: {best_gmina_data.get('powiat', 'N/A')}")
+        print(f"  - Populacja: {best_gmina_data.get('populacja', 'N/A')}")
+        print(f"  - Suma U19: {best_gmina_data.get('suma_U19', 'N/A')}")
+        print(f"  - Przystanki: {best_gmina_data.get('przystanki', 'N/A')}")
+        print(f"  - Gęstość: {best_gmina_data.get('gestosc', 'N/A')} osób/km²")
+        
+        # Dystans do najbliższej szkoły
+        best_point = Point(best_position[0], best_position[1])
+        min_dist_to_school = min([
+            np.sqrt((best_position[0] - s["_x"]) ** 2 + (best_position[1] - s["_y"]) ** 2)
+            for s in school_rows_in_region
+        ]) if school_rows_in_region else -1
+        
+        print(f"  - Dystans do najbliższej szkoły: {min_dist_to_school:.3f}°")
+    
+    print("\n✓ Optymalizacja zakończona")
+    
+    return woa, best_position, best_score
+
+
+if __name__ == "__main__":
+    woa, best_pos, best_score = main()
