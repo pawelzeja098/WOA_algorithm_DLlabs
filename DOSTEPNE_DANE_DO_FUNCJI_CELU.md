@@ -1,6 +1,6 @@
-# 📊 Dane dostępne do funkcji celu - Kompleksowy przewodnik
+# Dane dostepne do funkcji celu - Kompleksowy przewodnik
 
-## 🎯 Strefa dla opracowywania funkcji fitness
+## Strefa dla opracowywania funkcji fitness
 
 Ta dokumentacja pokazuje **WSZYSTKIE dostępne dane** które możesz użyć w funkcji celu (`fitness_func`).
 Każda wartość jest przygotowana i gotowa do użytku.
@@ -21,7 +21,7 @@ gmina_data = {
     "5-9": 1011,
     "10-14": 955,
     "15-19": 922,
-    "suma_U19": 17277.0,            # ⭐ SUMA DZIECI PONIŻEJ 19 LAT
+    "suma_U19": 17277.0,            # SUMA DZIECI PONIZEJ 19 LAT
     "wydatki": 52504807.6,          # budżet gminy (zł)
     "przystanki": 376.0             # liczba przystanków transportu publicznego
 }
@@ -91,7 +91,7 @@ def fitness_func(position: np.ndarray) -> float:
 
 ---
 
-## 📋 Lista WSZYSTKICH dostępnych wartości
+## Lista WSZYSTKICH dostepnych wartosci
 
 ### Przed przedmiotu (każdy ma te same pola):
 | Pole | Typ | Opis |
@@ -116,7 +116,7 @@ def fitness_func(position: np.ndarray) -> float:
 
 ---
 
-## 💡 Przykłady kombinacji metryk
+## Przyklady kombinacji metryk
 
 ### **Przykład 1: Deficyt edukacyjny**
 ```python
@@ -162,7 +162,7 @@ score = (
 
 ---
 
-## 🎓 Przedmioty dostępne w pliku E8
+## Przedmioty dostepne w pliku E8
 
 | Przedmiot | Klucz w słowniku |
 |-----------|------------------|
@@ -211,7 +211,7 @@ def fitness_func(position):
 
 ---
 
-## ✅ Checklist dla funkcji celu
+## Checklist dla funkcji celu
 
 Zanim zaczniesz pisać `fitness_func`, przygotuj plan:
 
@@ -223,7 +223,7 @@ Zanim zaczniesz pisać `fitness_func`, przygotuj plan:
 
 ---
 
-## 📌 Ważne!
+## Wazne!
 
 1. **Zawsze sprawdzaj `None`** - jeśli dane dla gminy się nie znalazły
 2. **Unikaj dzielenia przez 0** - dodaj `+ 1` do mianownika
@@ -232,7 +232,7 @@ Zanim zaczniesz pisać `fitness_func`, przygotuj plan:
 
 ---
 
-## 🚀 Gotowy szablon
+## Gotowy szablon
 
 ```python
 def fitness_func(position: np.ndarray) -> float:
@@ -264,4 +264,4 @@ def fitness_func(position: np.ndarray) -> float:
 
 ---
 
-**Status:** ✅ Wszystkie dane przygotowane i gotowe do użytku!
+**Status:** Wszystkie dane przygotowane i gotowe do uzytku.

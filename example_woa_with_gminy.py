@@ -59,10 +59,19 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
             if gmina_info:
                 gmina_name = gmina_info.get("gmina", gmina_info.get("name"))
                 schools_per_gmina[gmina_name] = schools_per_gmina.get(gmina_name, 0) + 1
+
+    # Przygotuj punkty istniejacych szkol do szybkiego liczenia odleglosci
+    if school_rows:
+        school_points = np.array(
+            [[s["_x"], s["_y"]] for s in school_rows if "_x" in s and "_y" in s],
+            dtype=float,
+        )
+    else:
+        school_points = np.empty((0, 2), dtype=float)
     
     def fitness_func(position: np.ndarray) -> float:
         """
-        ⭐⭐⭐ TUTAJ OPRACUJ SWOJĄ FUNKCJĘ CELU ⭐⭐⭐
+        TUTAJ OPRACUJ WLASNA FUNKCJE CELU
         
         Dostęp do danych:
         
@@ -80,6 +89,7 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
             'srednia_wszystkich_przedmiotow': float,      # średni wynik (%)
             'liczba_zdajacych': float,                    # dostęp do edukacji
             'srednie_odchylenie_standardowe': float,      # wskaźnik NIERÓWNOŚCI
+            'min_dist_to_school': float,                  # odleglosc do najblizszej istniejacej szkoly
             'przedmioty': {                               # szczegóły po przedmiotach
                 'polski': {'srednia': ..., 'mediana': ..., 'odchylenie_standardowe': ...},
                 'matematyka': {...},
@@ -88,7 +98,7 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
             }
         }
         
-        ⭐ Patrz DOSTEPNE_DANE_DO_FUNCJI_CELU.md dla pełnej dokumentacji
+        Patrz DOSTEPNE_DANE_DO_FUNCJI_CELU.md dla pelnej dokumentacji
         """
         x, y = position[0], position[1]
         
@@ -99,6 +109,8 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
         
         # Pobierz dane edukacyjne
         gmina_name = gmina_data.get("gmina", gmina_data.get("name"))
+        if isinstance(gmina_name, str) and gmina_name.lower().startswith("gmina "):
+            gmina_name = gmina_name[6:].strip()
         egzaminy_data = egzaminy_accessor.get_wszystkie_dane_dla_gminy(gmina_name)
         
         # Jeśli brak danych edukacyjnych, użyj 0
@@ -109,20 +121,33 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
                 "srednie_odchylenie_standardowe": 0,
                 "przedmioty": {}
             }
+
+        # Odleglosc od najblizszej istniejacej szkoly (w stopniach)
+        if school_points.shape[0] > 0:
+            dxy = school_points - np.array([x, y], dtype=float)
+            min_dist_to_school = float(np.sqrt(np.min(np.sum(dxy * dxy, axis=1))))
+        else:
+            min_dist_to_school = float("inf")
+
+        # Dodaj metryke odleglosci do slownika danych edukacyjnych,
+        # aby byla dostepna jako gotowe wejscie do funkcji celu.
+        egzaminy_data["min_dist_to_school"] = min_dist_to_school
         
-        # =====================================================
+        
         # PRZYKŁAD: Szkoły gdzie jest DEFICYT edukacyjny
-        # =====================================================
+        
         suma_u19 = gmina_data.get("suma_U19", 0)
         liczba_zdajacych = egzaminy_data.get("liczba_zdajacych", 0)
         nierownos = egzaminy_data.get("srednie_odchylenie_standardowe", 0)
         przystanki = gmina_data.get("przystanki", 0)
+        min_dist = egzaminy_data.get("min_dist_to_school", 0)
         
         # Metryka: Deficyt szkolny + nierówności + transport
         score = (
             (suma_u19 / (liczba_zdajacych + 1)) +      # deficyt edukacyjny
             (nierownos / 20) +                         # nierówności (znormalizowane)
-            (przystanki / 100)                         # dostęp do transportu
+            (przystanki / 100) +                       # dostęp do transportu
+            (min_dist * 5)                             # preferuj punkty dalej od istniejacych szkol
         )
         
         return float(score)
@@ -224,7 +249,7 @@ def main():
         
         print(f"  - Dystans do najbliższej szkoły: {min_dist_to_school:.3f}°")
     
-    print("\n✓ Optymalizacja zakończona")
+    print("\nOptymalizacja zakonczona")
     
     return woa, best_position, best_score
 

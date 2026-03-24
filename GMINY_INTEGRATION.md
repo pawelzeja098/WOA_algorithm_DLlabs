@@ -1,9 +1,9 @@
 # Integracja danych gminy z algorytmem WOA
 
-## 📋 Problem
+## Problem
 Jak załadować dane z `gminy_ready.csv` aby algorytm WOA miał dostęp do danych każdej gminy na podstawie proponowanej lokalizacji (x, y)?
 
-## ✅ Rozwiązanie
+## Rozwiazanie
 
 System oparty na 3 komponentach:
 
@@ -84,7 +84,7 @@ for position in positions:
     print(gmina_info)
 ```
 
-## 📊 Dostępne dane w gminy_ready.csv
+## Dostepne dane w gminy_ready.csv
 
 ```python
 gmina_data = {
@@ -129,7 +129,7 @@ def fitness_func(position):
     return score
 ```
 
-## 🚀 Pełny przykład
+## Pelny przyklad
 
 Patrz plik: `example_woa_with_gminy.py`
 
@@ -148,7 +148,7 @@ test_point = (123.45, 678.90)
 gmina = gmina_accessor.get_data_for_position(test_point[0], test_point[1])
 
 if gmina is None or gmina.get("data_not_found"):
-    print(f"⚠️  Punkt {test_point} nie znaleziony w żadnej gminie!")
+    print(f"Punkt {test_point} nie znaleziony w zadnej gminie!")
 else:
     print(f"✓ Znaleziona gmina: {gmina['gmina']}")
 ```
@@ -160,7 +160,7 @@ print(f"Geometrie gminy: {len(gminy_geoms)}")
 # Powinny być zbliżone lub geometrii mogą być więcej
 ```
 
-## ⚠️ Często spotykane problemy
+## Czesto spotykane problemy
 
 ### Problem: `gmina_accessor.get_data_for_position()` zwraca None
 **Przyczyna:** Punkt (x, y) leży poza granicami Małopolski
@@ -186,7 +186,7 @@ print(f"Geometrie gminy: {len(gminy_geoms)}")
 | `find_gmina_for_point()` | Znajduje gminę dla punktu |
 | `GminaDataAccessor` | Klasa dostępu do danych |
 
-## 💡 Wskazówki
+## Wskazowki
 
 1. **Cachuj accessor** - stwórz raz na początku, nie na nowo w każdej iteracji
 2. **Normalizuj metryki** - dziel duże liczby aby fitness mieści się w rozsądnym zakresie

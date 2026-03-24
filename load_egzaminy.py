@@ -19,6 +19,33 @@ def safe_float(value: str, default: float = 0.0) -> float:
         return default
 
 
+def normalize_gmina_name(name: str) -> str:
+    """Ujednolica nazwy gmin do porownan miedzy roznymi zrodlami danych."""
+    if not name:
+        return ""
+
+    normalized = str(name).strip().lower()
+
+    # Usun czesc typu "(Gmina wiejska)"
+    if "(" in normalized:
+        normalized = normalized.split("(", 1)[0].strip()
+
+    # Usun najczestsze prefiksy spotykane w plikach
+    prefixes = (
+        "gmina ",
+        "miasto ",
+        "obszar wiejski ",
+        "obszar miejski ",
+        "m. ",
+    )
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):].strip()
+
+    # Ujednolic spacje
+    return " ".join(normalized.split())
+
+
 def load_egzaminy_data(csv_path: Path) -> Dict[str, Dict]:
     """
     Wczytuje dane egzaminow z E8 - gminy (aktualizacja 07.2025).csv
@@ -128,16 +155,35 @@ class EgzaminyDataAccessor:
     
     def get_egzaminy_for_gmina(self, gmina_name: str, typ_gminy: str = "") -> Optional[Dict]:
         """Zwraca dane egzaminow dla danej gminy."""
+        if not gmina_name:
+            return None
+
+        target_norm = normalize_gmina_name(gmina_name)
+
         if typ_gminy:
             key = f"{gmina_name} ({typ_gminy})"
             if key in self.egzaminy:
                 return self.egzaminy[key]
+
+            key_norm = f"{target_norm} ({typ_gminy})"
+            for k, data in self.egzaminy.items():
+                if normalize_gmina_name(k) == target_norm and typ_gminy.lower() in k.lower():
+                    return data
         
         if gmina_name in self.egzaminy:
             return self.egzaminy[gmina_name]
-        
+
+        # Najpierw probuj dopasowania scislego po znormalizowanej nazwie
         for key, data in self.egzaminy.items():
-            if gmina_name.lower() in key.lower():
+            key_norm = normalize_gmina_name(key)
+            data_name_norm = normalize_gmina_name(data.get("gmina", ""))
+            if target_norm == key_norm or target_norm == data_name_norm:
+                return data
+        
+        # Na koniec dopasowanie czesciowe
+        for key, data in self.egzaminy.items():
+            key_norm = normalize_gmina_name(key)
+            if target_norm and (target_norm in key_norm or key_norm in target_norm):
                 return data
         
         return None
