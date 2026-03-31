@@ -87,14 +87,15 @@ def create_fitness_func_with_gminy_data(gmina_accessor: GminaDataAccessor, egzam
         suma_u19 = gmina_data.get("suma_U19", 0)
         przystanki = gmina_data.get("przystanki", 0)
         
-        MAX_U19 = 10000.0      # Typowa duża gmina ma ok. 5-10 tys. dzieci (pomijamy duże miasta jak Kraków)
-        MAX_PRZYSTANKI = 200.0 # Typowa dobra liczba przystanków
-        MAX_DIST = 0.1         # Ok. 10-11 km w stopniach (uznajemy, że to już bardzo daleko od innej szkoły)
-        
-        # Skalowanie metryk do przedziału [0, 1]
-        norm_u19 = min(suma_u19 / MAX_U19, 1.0)
-        norm_przystanki = min(przystanki / MAX_PRZYSTANKI, 1.0)
-        norm_dist = min(min_dist_to_school / MAX_DIST, 1.0)
+        # Gładkie skalowanie bez twardego obcinania redukuje duże płaskie plateau funkcji celu.
+        U19_SCALE = 4500.0
+        PRZYSTANKI_SCALE = 80.0
+        DIST_SCALE = 0.045
+
+        # Wartości rosną do 1 asymptotycznie, ale nadal różnicują „dobre” obszary.
+        norm_u19 = 1.0 - np.exp(-float(suma_u19) / U19_SCALE)
+        norm_przystanki = 1.0 - np.exp(-float(przystanki) / PRZYSTANKI_SCALE)
+        norm_dist = 1.0 - np.exp(-float(min_dist_to_school) / DIST_SCALE)
     
         WAGA_DYSTANS = 0.60
         WAGA_DZIECI = 0.20           
@@ -171,9 +172,11 @@ def main():
         lb=lb,
         ub=ub,
         mask_polygon=geom,
-        n_agents=20,          # Liczba "wielorybów"
-        max_iter=50,          # Liczba iteracji
+        n_agents=40,          # Większa populacja = lepsze pokrycie przestrzeni
+        max_iter=120,         # Więcej iteracji na eksplorację i dopracowanie
         b=1.0,
+        forced_exploration_prob=0.25,
+        a_decay_power=2.0,
         seed=42
     )
     

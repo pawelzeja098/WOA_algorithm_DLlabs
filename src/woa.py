@@ -43,6 +43,8 @@ class WhaleOptimizationAlgorithm:
         n_agents: int = 30,
         max_iter: int = 100,
         b: float = 1.0,
+        forced_exploration_prob: float = 0.15,
+        a_decay_power: float = 2.0,
         seed: int | None = None,
     ) -> None:
         self.fitness_func = fitness_func
@@ -52,6 +54,8 @@ class WhaleOptimizationAlgorithm:
         self.n_agents = n_agents
         self.max_iter = max_iter
         self.b = b
+        self.forced_exploration_prob = float(np.clip(forced_exploration_prob, 0.0, 1.0))
+        self.a_decay_power = max(0.1, float(a_decay_power))
         self.dim = len(lb)
         self._rng = np.random.default_rng(seed)
 
@@ -75,7 +79,7 @@ class WhaleOptimizationAlgorithm:
                 p = self._rng.uniform(self.lb, self.ub)
                 # Jeśli mamy maskę, sprawdź czy punkt jest wewnątrz
                 if self.mask_polygon is not None:
-                    if self.mask_polygon.contains(Point(p[0], p[1])):
+                    if self.mask_polygon.covers(Point(p[0], p[1])):
                         positions[i] = p
                         valid = True
                 else:
@@ -83,19 +87,30 @@ class WhaleOptimizationAlgorithm:
                     valid = True
         return positions
 
+    def _random_point_in_mask(self, fallback: np.ndarray) -> np.ndarray:
+        """Losuje punkt wewnątrz maski; po kilku próbach zwraca fallback."""
+        if self.mask_polygon is None:
+            return self._rng.uniform(self.lb, self.ub)
+
+        for _ in range(50):
+            candidate = self._rng.uniform(self.lb, self.ub)
+            if self.mask_polygon.covers(Point(candidate[0], candidate[1])):
+                return candidate
+        return fallback
+
     def _clip(self, positions: np.ndarray, old_positions: np.ndarray) -> np.ndarray:
         """
-        Jeśli wieloryb wypłynie poza województwo, 
-        zostaje przyciągnięty do swojej poprzedniej (dobrej) pozycji.
+        Jeśli wieloryb wypłynie poza województwo,
+        próbujemy losowo wrócić do wnętrza maski zamiast zamrażać pozycję.
         """
         new_positions = np.clip(positions, self.lb, self.ub)
         
         if self.mask_polygon is not None:
             for i in range(len(new_positions)):
                 point = Point(new_positions[i][0], new_positions[i][1])
-                if not self.mask_polygon.contains(point):
-                    # Jeśli wypadł poza małopolskę, cofnij go
-                    new_positions[i] = old_positions[i]
+                if not self.mask_polygon.covers(point):
+                    # Zamiast cofać do starej pozycji (stagnacja), losujemy punkt z maski.
+                    new_positions[i] = self._random_point_in_mask(old_positions[i])
                     
         return new_positions
 
@@ -135,7 +150,8 @@ class WhaleOptimizationAlgorithm:
 
         for t in range(self.max_iter):
             # Liniowy spadek parametru sterującego eksploracja/eksploatacja
-            a = 2.0 - 2.0 * t / self.max_iter   # 2 → 0
+            progress = t / max(1, self.max_iter - 1)
+            a = 2.0 * (1.0 - progress ** self.a_decay_power)
 
             new_positions = positions.copy()
 
@@ -146,15 +162,25 @@ class WhaleOptimizationAlgorithm:
                 C = 2.0 * r2           # współczynnik odległości
                 p = self._rng.random()
                 l = self._rng.uniform(-1.0, 1.0)  # parametr spirali
+                force_explore = self._rng.random() < self.forced_exploration_prob * (1.0 - progress)
 
-                if p < 0.5:
+                if force_explore:
+                    rand_idx = int(self._rng.integers(0, self.n_agents - 1))
+                    if rand_idx >= i:
+                        rand_idx += 1
+                    X_rand = positions[rand_idx]
+                    D = np.abs(C * X_rand - positions[i])
+                    new_positions[i] = X_rand - A * D
+                elif p < 0.5:
                     if abs(A) < 1.0:
                         # ---- Eksploatacja: zwężające się okrążanie ----
                         D = np.abs(C * self.best_position - positions[i])
                         new_positions[i] = self.best_position - A * D
                     else:
                         # ---- Eksploracja: losowe przeszukiwanie ----
-                        rand_idx = self._rng.integers(0, self.n_agents)
+                        rand_idx = int(self._rng.integers(0, self.n_agents - 1))
+                        if rand_idx >= i:
+                            rand_idx += 1
                         X_rand = positions[rand_idx]
                         D = np.abs(C * X_rand - positions[i])
                         new_positions[i] = X_rand - A * D
@@ -171,18 +197,25 @@ class WhaleOptimizationAlgorithm:
 
             # Aktualizacja najlepszego rozwiązania
             iter_best_idx = int(np.argmax(scores))
+            iter_best_score = float(scores[iter_best_idx])
+            iter_best_position = positions[iter_best_idx]
             if scores[iter_best_idx] > self.best_score:
                 self.best_score = float(scores[iter_best_idx])
                 self.best_position = positions[iter_best_idx].copy()
 
+            spread = float(np.mean(np.std(positions, axis=0)))
+
             self.convergence_curve.append(self.best_score)
             self.history.append(positions.copy())
 
-            if verbose and (t + 1) % 10 == 0:
+            if verbose:
                 print(
                     f"  Iteracja {t + 1:>4}/{self.max_iter} | "
-                    f"Wynik: {self.best_score:.6f} | "
-                    f"Pozycja: ({self.best_position[0]:.2f}, {self.best_position[1]:.2f})"
+                    f"BestGlobal: {self.best_score:.6f} | "
+                    f"BestIter: {iter_best_score:.6f} | "
+                    f"Spread: {spread:.4f} | "
+                    f"Pozycja globalna: ({self.best_position[0]:.4f}, {self.best_position[1]:.4f}) | "
+                    f"Pozycja iteracji: ({iter_best_position[0]:.4f}, {iter_best_position[1]:.4f})"
                 )
 
         return self.best_position, self.best_score
